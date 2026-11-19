@@ -1,0 +1,51 @@
+[
+  {
+    "file": "exterior-street-day.jpg",
+    "title_ru": "Фасад со стороны улицы — день",
+    "title_cz": "Uliční průčelí — den",
+    "title_en": "Street Facade — Day",
+    "type": "concept"
+  },
+  {
+    "file": "exterior-street-evening.jpg",
+    "title_ru": "Фасад со стороны улицы — вечер",
+    "title_cz": "Uliční průčelí — večer",
+    "title_en": "Street Facade — Evening",
+    "type": "concept"
+  },
+  {
+    "file": "interior-restaurant.jpg",
+    "title_ru": "Ресторан и бар",
+    "title_cz": "Restaurace a bar",
+    "title_en": "Restaurant & Bar",
+    "type": "concept"
+  },
+  {
+    "file": "cave-wine-cellar.jpg",
+    "title_ru": "Винный погреб в пещере",
+    "title_cz": "Vinný sklep v jeskyni",
+    "title_en": "Cave Wine Cellar",
+    "type": "concept"
+  },
+  {
+    "file": "terrace-suite.jpg",
+    "title_ru": "Апартамент с террасой",
+    "title_cz": "Apartmán s terasou",
+    "title_en": "Terrace Suite",
+    "type": "concept"
+  },
+  {
+    "file": "duplex-apartment.jpg",
+    "title_ru": "Двухуровневые апартаменты",
+    "title_cz": "Mezonetový apartmán",
+    "title_en": "Duplex Apartment",
+    "type": "concept"
+  },
+  {
+    "file": "courtyard-summer.jpg",
+    "title_ru": "Внутренний двор — летний вечер",
+    "title_cz": "Nádvoří — letní večer",
+    "title_en": "Courtyard — Summer Evening",
+    "type": "concept"
+  }
+]

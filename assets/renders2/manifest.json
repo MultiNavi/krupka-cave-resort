@@ -1,0 +1,39 @@
+{
+  "set": "krupka-renders2-from-drawings",
+  "generated": "2026-11-20",
+  "model": "Flux 1.1 Pro (black-forest-labs/flux-1.1-pro)",
+  "basis": "Grounded in real project drawings: pohled-facade.png (D-05 elevation, existing state), plan-1NP.png, plan-2NP.png, and bar interior video frame. Geometry transcribed into prompts.",
+  "note": "Concept visualizations based on real drawings — to be labeled as such. Nano Banana Pro (reference-image grounding) was attempted first but Google Gemini prepay credits were depleted (HTTP 402); fell back to Flux 1.1 Pro with drawing geometry encoded textually.",
+  "aspect_ratio": "16:9",
+  "dimensions": "1600x900",
+  "renders": [
+    {
+      "file": "facade-true-day.jpg",
+      "type": "concept-from-drawings",
+      "title_ru": "Фасад — дневной вид (концепт по чертежу)",
+      "title_cz": "Fasáda — denní pohled (koncept dle výkresu)",
+      "title_en": "Facade — daytime (concept from drawing)"
+    },
+    {
+      "file": "facade-true-evening.jpg",
+      "type": "concept-from-drawings",
+      "title_ru": "Фасад — синий час (концепт по чертежу)",
+      "title_cz": "Fasáda — modrá hodina (koncept dle výkresu)",
+      "title_en": "Facade — blue hour (concept from drawing)"
+    },
+    {
+      "file": "axon-cutaway.jpg",
+      "type": "concept-from-drawings",
+      "title_ru": "Аксонометрия-разрез — концепция наполнения",
+      "title_cz": "Axonometrický řez — koncept využití",
+      "title_en": "Axonometric cutaway — use concept"
+    },
+    {
+      "file": "plan-art-2NP.jpg",
+      "type": "concept-from-drawings",
+      "title_ru": "2.NP — художественный план (концепт деления на квартиры)",
+      "title_cz": "2.NP — umělecký půdorys (koncept dělení na byty)",
+      "title_en": "2nd floor — artistic plan (apartment division concept)"
+    }
+  ]
+}
