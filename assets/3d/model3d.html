@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Krupka · 3D</title>
+<style>
+  :root{
+    --bg:#0e1013; --stone:#d9cdb8; --graphite:#2a2f38; --gold:#c9a227; --glow:#e3c45c; --rock:#4a4740;
+    --panel:rgba(14,16,19,.78); --ink:#efe8d6;
+  }
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:"Avenir Next","Helvetica Neue",system-ui,-apple-system,sans-serif;}
+  #app{position:fixed;inset:0;}
+  canvas{display:block;}
+  #labels{position:fixed;inset:0;pointer-events:none;z-index:5;}
+  .lbl{background:var(--panel);border:1px solid rgba(201,162,39,.55);color:var(--ink);
+    padding:5px 12px 5px 10px;border-radius:999px;font-size:12.5px;letter-spacing:.05em;white-space:nowrap;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    box-shadow:0 4px 18px rgba(0,0,0,.45);transition:opacity .35s;}
+  .lbl::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:var(--gold);margin-right:7px;vertical-align:1px;}
+  #brand{position:fixed;top:16px;left:18px;z-index:10;color:var(--ink);pointer-events:none;}
+  #brand .t{font-size:15px;letter-spacing:.32em;color:var(--gold);font-weight:600;}
+  #brand .s{font-size:10.5px;letter-spacing:.14em;opacity:.55;margin-top:3px;text-transform:uppercase;}
+  #ui{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:10;
+    display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:94vw;}
+  .btn{background:var(--panel);border:1px solid rgba(217,205,184,.22);color:var(--ink);
+    padding:9px 15px;border-radius:999px;font-size:12.5px;letter-spacing:.04em;cursor:pointer;
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:all .25s;user-select:none;}
+  .btn:hover{border-color:rgba(201,162,39,.65);}
+  .btn.active{background:rgba(201,162,39,.16);border-color:var(--gold);color:#f4e8bf;
+    box-shadow:0 0 18px rgba(201,162,39,.25);}
+  #hint{position:fixed;left:50%;bottom:68px;transform:translateX(-50%);z-index:9;color:var(--ink);
+    background:var(--panel);border:1px solid rgba(217,205,184,.18);border-radius:999px;
+    padding:7px 16px;font-size:12px;letter-spacing:.12em;opacity:.85;pointer-events:none;
+    transition:opacity 1.2s;}
+  #hint.gone{opacity:0;}
+  @media (max-width:640px){
+    .btn{padding:8px 11px;font-size:11px;}
+    #brand .t{font-size:13px;}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="labels"></div>
+<div id="brand"><div class="t">KRUPKA</div><div class="s" id="brandSub"></div></div>
+<div id="ui"></div>
+<div id="hint"></div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+/* ============ i18n ============ */
+const I18N = {
+  ru:{sub:'Инвестиционный объект · 3D-модель',
+      btns:{all:'Всё здание',floor1:'1 этаж — ресторан',floor2:'2 этаж — 6 квартир',floor3:'3 этаж — мансарда + терраса',caves:'Пещеры'},
+      hint:'Вращайте · Приближайте',
+      lbl:{rest:'Ресторан',apts:'6 квартир',attic:'Мансарда + терраса 40–50 м²',cave:'Винная пещера',summer:'Летняя зона'}},
+  cz:{sub:'Investiční objekt · 3D model',
+      btns:{all:'Celá budova',floor1:'1. NP — restaurace',floor2:'2. NP — 6 bytů',floor3:'3. NP — podkroví + terasa',caves:'Jeskyně'},
+      hint:'Otáčejte · Přibližujte',
+      lbl:{rest:'Restaurace',apts:'6 bytů',attic:'Podkroví + terasa 40–50 m²',cave:'Vinná jeskyně',summer:'Letní zóna'}},
+  en:{sub:'Investment property · 3D model',
+      btns:{all:'Whole building',floor1:'Floor 1 — restaurant',floor2:'Floor 2 — 6 apartments',floor3:'Floor 3 — attic + terrace',caves:'Caves'},
+      hint:'Rotate · Zoom',
+      lbl:{rest:'Restaurant',apts:'6 apartments',attic:'Attic + terrace 40–50 m²',cave:'Wine cave',summer:'Summer area'}}
+};
+const Q = new URLSearchParams(location.search);
+let lang = (Q.get('lang')||'ru').toLowerCase(); if(lang==='cs') lang='cz'; if(!I18N[lang]) lang='ru';
+const T = I18N[lang];
+const STILL = Q.get('still')==='1';
+const START_LAYER = Q.get('layer')||'all';
+
+document.getElementById('brandSub').textContent = T.sub;
+document.getElementById('hint').textContent = T.hint;
+
+/* ============ renderer / scene ============ */
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+app.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth,innerHeight);
+labelRenderer.domElement.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:5;';
+document.getElementById('labels').appendChild(labelRenderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e1013);
+scene.fog = new THREE.Fog(0x0e1013, 80, 190);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.5, 400);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = .06;
+controls.minDistance = 12; controls.maxDistance = 110;
+controls.maxPolarAngle = Math.PI*0.52;
+controls.autoRotate = !STILL; controls.autoRotateSpeed = 0.55;
+
+const CAM = {
+  all:   {p:[27,15.5,31], t:[0,5.5,0]},
+  floor1:{p:[23,13,27],   t:[0,2.5,0]},
+  floor2:{p:[22,17,26],   t:[0,4.5,0]},
+  floor3:{p:[24,18,25],   t:[0,8.5,0]},
+  caves: {p:[35,13,12],   t:[6,4,-11]}
+};
+const cp = CAM[START_LAYER]||CAM.all;
+camera.position.set(...cp.p); controls.target.set(...cp.t); controls.update();
+
+controls.addEventListener('start',()=>{ controls.autoRotate=false; hideHint(); });
+
+/* ============ lights ============ */
+scene.add(new THREE.AmbientLight(0x9aa4b5, 0.55));
+const hemi = new THREE.HemisphereLight(0xbfc8d8, 0x2a241c, 0.35); scene.add(hemi);
+const key = new THREE.DirectionalLight(0xfff2dc, 2.2);
+key.position.set(-24, 34, 26); key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.camera.left=-42; key.shadow.camera.right=42;
+key.shadow.camera.top=42; key.shadow.camera.bottom=-30;
+key.shadow.camera.far=120; key.shadow.bias=-0.0004;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x8ea2c5, 0.55);
+fill.position.set(30, 18, -24); scene.add(fill);
+
+/* ============ materials ============ */
+const M = {
+  wall:  ()=>new THREE.MeshStandardMaterial({color:0xd9cdb8, roughness:.92, metalness:0}),
+  wallD: ()=>new THREE.MeshStandardMaterial({color:0xcabfa8, roughness:.92, metalness:0}),
+  base:  ()=>new THREE.MeshStandardMaterial({color:0xb3a78f, roughness:.95, metalness:0}),
+  roof:  ()=>new THREE.MeshStandardMaterial({color:0x2a2f38, roughness:.6,  metalness:.25}),
+  frame: ()=>new THREE.MeshStandardMaterial({color:0x1c1f26, roughness:.7,  metalness:.1}),
+  glass: ()=>new THREE.MeshStandardMaterial({color:0x2a2410, roughness:.4, metalness:0,
+            emissive:0xe3c45c, emissiveIntensity:.85}),
+  gold:  ()=>new THREE.MeshStandardMaterial({color:0xc9a227, roughness:.4, metalness:.6,
+            emissive:0xc9a227, emissiveIntensity:.12}),
+  rock:  ()=>new THREE.MeshStandardMaterial({color:0x4a4740, roughness:.98, metalness:0, flatShading:true}),
+  rockD: ()=>new THREE.MeshStandardMaterial({color:0x3a3833, roughness:.98, metalness:0}),
+  caveIn:()=>new THREE.MeshStandardMaterial({color:0x17120c, roughness:1, metalness:0}),
+  caveGlow:()=>new THREE.MeshStandardMaterial({color:0x2a1c08, emissive:0xe3a84c, emissiveIntensity:.9}),
+  stone: ()=>new THREE.MeshStandardMaterial({color:0x6b6256, roughness:.95, metalness:0}),
+  plinth:()=>new THREE.MeshStandardMaterial({color:0x8d8373, roughness:.95, metalness:0}),
+  part:  ()=>new THREE.MeshStandardMaterial({color:0xe6dcc4, roughness:.9, metalness:0}),
+  wood:  ()=>new THREE.MeshStandardMaterial({color:0x8a6d3b, roughness:.75, metalness:.05}),
+  bulb:  ()=>new THREE.MeshStandardMaterial({color:0x332a10, emissive:0xe3c45c, emissiveIntensity:1.6}),
+};
+
+/* ============ layer registry ============ */
+// layers: floor1, floor2, floor3, caves, roof(special)
+const REG = [];
+function reg(mesh, layer, opts={}){
+  mesh.castShadow = opts.noShadow?false:true;
+  mesh.receiveShadow = true;
+  mesh.material.transparent = true;
+  REG.push({mesh, mat:mesh.material, layer, target:1, noShadow:!!opts.noShadow, shell:!!opts.shell,
+            glassLike:opts.glassLike||false, baseEI:mesh.material.emissiveIntensity||0,
+            baseEm:mesh.material.emissive?mesh.material.emissive.getHex():0});
+  scene.add(mesh);
+  return mesh;
+}
+function box(w,h,d,x,y,z,mat,layer,opts){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z);
+  return reg(m,layer,opts);
+}
+
+/* ============ BUILDING — from drawings ============
+   Facade length 21.25 m (dim chain 21,220/21,280)
+   Main depth 12.6 m (chain 12,615) · rear wing 5.93 × 5.4 m at left
+   Levels: 0.00 / +3.70 / +7.40 · eaves +8.20 · ridge +13.30
+   Street slope: −0.75 to the right                              */
+const L=21.25, D=12.6, HL=L/2, HD=D/2;        // main block
+const EAVES=8.2, RIDGE=13.3, RISE=RIDGE-EAVES;
+const OV=0.35;                                 // roof overhang
+const SL_HALF=HD+OV;                           // slope half-span at eaves
+
+/* --- floors (main block) --- */
+box(L, 1.1, D, 0, -0.55, 0, M.base(), 'floor1');                 // base / terrain band
+box(L, 3.7, D, 0, 1.85, 0, M.wall(), 'floor1', {shell:true});    // 1.NP  0–3.70
+box(L+0.12, 0.14, D+0.12, 0, 3.72, 0, M.wallD(), 'floor2', {noShadow:true}); // string course
+box(L, 3.7, D, 0, 5.55, 0, M.wall(), 'floor2', {shell:true});    // 2.NP  3.70–7.40
+box(L, 0.8, D, 0, 7.8, 0, M.wall(), 'floor3', {shell:true});     // knee wall 7.40–8.20
+box(L+0.4, 0.2, D+0.4, 0, 8.22, 0, M.wallD(), 'floor3', {noShadow:true});   // cornice +8.20
+
+/* stone plinth — right part of the facade (street drops −0.75 right) */
+box(10.2, 1.75, 0.22, 5.55, 0.28, HD+0.06, M.plinth(), 'floor1');
+box(0.22, 1.75, D+0.1, HL+0.06, 0.28, 0, M.plinth(), 'floor1');
+
+/* --- rear wing, left (5.93 × 5.4, two floors, from plans) --- */
+const WX = -HL+5.93/2, WD=5.4, WZ=-HD-WD/2;
+box(5.93, 3.7, WD, WX, 1.85, WZ, M.wall(), 'floor1', {shell:true});
+box(5.93, 3.0, WD, WX, 5.2,  WZ, M.wall(), 'floor2', {shell:true});
+box(6.2, 0.16, WD+0.3, WX, 6.74, WZ, M.wallD(), 'floor2', {noShadow:true});
+
+/* ============ windows ============ */
+function windowInset(x,y,z,w,h,layer,rotY=0,glowI=0.85){
+  // dark reveal + recessed warm glass (inset look)
+  const g = new THREE.Group();
+  const rev = new THREE.Mesh(new THREE.BoxGeometry(w+0.22,h+0.22,0.2), M.frame());
+  rev.position.z = -0.12;
+  const gl = new THREE.Mesh(new THREE.BoxGeometry(w,h,0.06), M.glass());
+  gl.material.emissiveIntensity = glowI;
+  gl.position.z = -0.015;
+  g.position.set(x,y,z); g.rotation.y = rotY;
+  g.add(rev); g.add(gl);
+  scene.add(g);
+  [rev,gl].forEach((m,i)=>{ m.castShadow=false; m.receiveShadow=true; m.material.transparent=true;
+    REG.push({mesh:m,mat:m.material,layer,target:1,glassLike:i===1,noShadow:true,
+      baseEI:m.material.emissiveIntensity||0, baseEm:m.material.emissive?m.material.emissive.getHex():0}); });
+  return g;
+}
+
+/* 2.NP street row — 11 windows 1.05×1.80, parapet +0.75 (drawing: 1800(750)) */
+const WIN_N = 11, m0 = 1.45, step = (L-2*m0)/(WIN_N-1);
+for(let i=0;i<WIN_N;i++){
+  windowInset(-HL+m0+i*step, 3.7+0.75+0.9, HD+0.1, 1.05, 1.8, 'floor2');
+}
+/* 1.NP street: 2 windows left · restaurant shopfront · entrance (left of centre) */
+windowInset(-9.35, 1.55, HD+0.1, 1.0, 1.45, 'floor1');
+windowInset(-8.0,  1.55, HD+0.1, 1.0, 1.45, 'floor1');
+/* shopfront (vitrína restaurace ~3.35 m, drawing 3350) */
+windowInset(-5.1, 1.35, HD+0.1, 3.35, 2.25, 'floor1', 0, 1.0);
+box(0.1, 2.25, 0.08, -5.65, 1.35, HD+0.2, M.frame(), 'floor1', {noShadow:true});
+box(0.1, 2.25, 0.08, -4.55, 1.35, HD+0.2, M.frame(), 'floor1', {noShadow:true});
+/* entrance door — left of centre (drawing: 1800 opening) */
+windowInset(-1.75, 1.3, HD+0.1, 1.7, 2.5, 'floor1', 0, 0.7);
+box(2.3, 0.18, 1.1, -1.75, 0.04, HD+0.55, M.stone(), 'floor1');        // step
+box(2.2, 0.12, 0.5, -1.75, 2.72, HD+0.3, M.gold(), 'floor1', {noShadow:true}); // canopy accent
+/* right part above plinth — one small window */
+windowInset(6.6, 2.2, HD+0.1, 0.9, 1.2, 'floor1', 0, 0.5);
+/* 2.NP rear + gable-side windows (hint of life) */
+for(let i=0;i<5;i++) windowInset(-7.5+i*3.6, 5.5, -HD-0.1, 1.0, 1.6, 'floor2', Math.PI, 0.6);
+windowInset(HL+0.1, 5.5, 2.4, 1.0, 1.6, 'floor2', Math.PI/2, 0.6);
+windowInset(HL+0.1, 5.5,-2.4, 1.0, 1.6, 'floor2', Math.PI/2, 0.6);
+windowInset(HL+0.1, 1.9, 2.4, 1.0, 1.5, 'floor1', Math.PI/2, 0.5);
+/* wing windows */
+windowInset(WX-5.93/2-0.1, 5.1, WZ, 1.0, 1.5, 'floor2', -Math.PI/2, 0.6);
+windowInset(WX, 1.8, WZ-WD/2-0.1, 1.1, 1.5, 'floor1', Math.PI, 0.5);
+
+/* ============ ROOF — gable, eaves 8.20 → ridge 13.30 ============ */
+const slopeAng = Math.atan2(RISE, SL_HALF);
+const roofT = 0.22;
+function yAt(zAbs){ return RIDGE - zAbs*(RISE/SL_HALF); }
+function slopeSeg(x1,x2,zA,zB,front){ // zA<zB absolute span values (0=ridge)
+  const len = Math.hypot(zB-zA, (zB-zA)*(RISE/SL_HALF));
+  const zc = (zA+zB)/2, yc = yAt(zc);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(x2-x1, roofT, len), M.roof());
+  m.position.set((x1+x2)/2, yc, front? zc : -zc);
+  m.rotation.x = front? slopeAng : -slopeAng;
+  return reg(m,'roof');
+}
+const RX = HL+0.4;
+slopeSeg(-RX, RX, 0.0, SL_HALF+0.15, true);                 // front slope (street)
+slopeSeg(-RX, -2.2, 0.0, SL_HALF+0.15, false);              // rear slope left
+slopeSeg( 4.2,  RX, 0.0, SL_HALF+0.15, false);              // rear slope right
+slopeSeg(-2.2, 4.2, 0.0, 3.3, false);                       // rear slope above terrace
+box(2*RX+0.2, 0.26, 0.7, 0, RIDGE+0.06, 0, M.roof(), 'roof');   // ridge cap
+/* gable walls (masonry triangles, short ends) */
+function gable(x){
+  const s = new THREE.Shape();
+  s.moveTo(-HD, 0); s.lineTo(HD, 0); s.lineTo(0, RISE-0.02); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s,{depth:.35,bevelEnabled:false});
+  const m = new THREE.Mesh(g, M.wall());
+  m.rotation.y = Math.PI/2; m.position.set(x, EAVES, 0);
+  return reg(m,'floor3',{shell:true});
+}
+gable(-HL); gable(HL-0.35);
+/* wing roof (low gable) */
+(()=>{ const a=Math.atan2(1.6, 5.93/2+0.2);
+  [[1,-1],[ -1,1]].forEach(([s])=>{ });
+  const len=Math.hypot(5.93/2+0.3, 1.6);
+  const r1=new THREE.Mesh(new THREE.BoxGeometry(len,0.18,WD+0.5),M.roof());
+  r1.position.set(WX-(5.93/4+0.07), 6.8+0.78, WZ); r1.rotation.z= a; reg(r1,'roof');
+  const r2=new THREE.Mesh(new THREE.BoxGeometry(len,0.18,WD+0.5),M.roof());
+  r2.position.set(WX+(5.93/4+0.07), 6.8+0.78, WZ); r2.rotation.z=-a; reg(r2,'roof');
+})();
+
+/* --- dormer — ONE, street slope, right of centre (as on elevation) --- */
+(()=>{
+  const dx=2.1, zc=4.35, base=yAt(zc)-0.5;
+  box(1.5, 1.45, 1.7, dx, base+0.72, zc, M.wall(), 'floor3');
+  windowInset(dx, base+0.78, zc+0.96, 0.8, 0.9, 'floor3', 0, 0.9);
+  const a=Math.atan2(0.58, 0.88);
+  const r1=new THREE.Mesh(new THREE.BoxGeometry(1.05,0.11,1.9),M.roof());
+  r1.position.set(dx-0.42, base+1.66, zc); r1.rotation.z= a; reg(r1,'floor3');
+  const r2=new THREE.Mesh(new THREE.BoxGeometry(1.05,0.11,1.9),M.roof());
+  r2.position.set(dx+0.42, base+1.66, zc); r2.rotation.z=-a; reg(r2,'floor3');
+})();
+/* chimney near right end (as on elevation) */
+box(0.6, 1.6, 0.6, 8.3, RIDGE+0.4, -0.4, M.wallD(), 'floor3');
+box(0.76, 0.18, 0.76, 8.3, RIDGE+1.22, -0.4, M.frame(), 'floor3');
+
+/* --- ROOF TERRACE (flagship suite) — rock side, cut into rear slope --- */
+(()=>{
+  const x1=-2.2, x2=4.2, zBack=-3.3, zEdge=-SL_HALF+0.4;
+  // back wall of the cut + glass door to suite
+  const bh = yAt(3.3)-EAVES;
+  box(x2-x1, bh, 0.24, (x1+x2)/2, EAVES+bh/2, zBack-0.02, M.wall(), 'floor3');
+  windowInset(1.0, EAVES+1.15, zBack-0.26, 2.2, 1.9, 'floor3', Math.PI, 1.0);
+  // deck
+  box(x2-x1, 0.16, Math.abs(zEdge-zBack), (x1+x2)/2, EAVES+0.1, (zBack+zEdge)/2, M.wood(), 'floor3');
+  // railing: gold top rail + thin posts
+  const railY=EAVES+1.05;
+  box(x2-x1, 0.07, 0.07, (x1+x2)/2, railY, zEdge, M.gold(), 'floor3', {noShadow:true});
+  box(0.07, 0.07, Math.abs(zEdge-zBack), x1, railY, (zBack+zEdge)/2, M.gold(), 'floor3', {noShadow:true});
+  box(0.07, 0.07, Math.abs(zEdge-zBack), x2, railY, (zBack+zEdge)/2, M.gold(), 'floor3', {noShadow:true});
+  for(let x=x1; x<=x2+0.01; x+=0.8)
+    box(0.05, 0.9, 0.05, x, EAVES+0.6, zEdge, M.frame(), 'floor3', {noShadow:true});
+  // side cheeks of the cut
+  box(0.2, 1.2, Math.abs(zEdge-zBack), x1-0.1, EAVES+0.5, (zBack+zEdge)/2, M.wall(), 'floor3');
+  box(0.2, 1.2, Math.abs(zEdge-zBack), x2+0.1, EAVES+0.5, (zBack+zEdge)/2, M.wall(), 'floor3');
+  // two lounge cubes
+  box(0.7,0.35,0.7, 0.0, EAVES+0.36, -4.6, M.wood(), 'floor3');
+  box(0.7,0.35,0.7, 1.6, EAVES+0.36, -5.1, M.wood(), 'floor3');
+})();
+
+/* ============ INTERIOR SCHEMES (visible per layer) ============ */
+const f1int = new THREE.Group(), f2int = new THREE.Group(), f3int = new THREE.Group();
+scene.add(f1int,f2int,f3int);
+function ibox(parent,w,h,d,x,y,z,mat){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat||M.part());
+  m.position.set(x,y,z); m.castShadow=false; m.receiveShadow=true; parent.add(m); return m;
+}
+/* 1.NP — restaurant: open hall left, kitchen right, bar */
+ibox(f1int, L-0.5, 0.1, D-0.5, 0, 0.12, 0);                              // slab
+ibox(f1int, 0.16, 2.3, D-0.8, 6.2, 1.27, 0);                             // kitchen wall
+ibox(f1int, 3.6, 2.3, 0.16, 8.3, 1.27, -1.2);                            // kitchen divider
+ibox(f1int, 3.4, 1.05, 0.75, -1.3, 0.64, -2.6, M.wood());                // bar
+for(let i=0;i<6;i++)
+  ibox(f1int, 0.62,0.62,0.62, -8.6+(i%3)*2.6, 0.48, -3.2+Math.floor(i/3)*4.4, M.wood());
+/* 2.NP — hall ~9.8 m left → corridor + 6 units right (2 duplex) */
+ibox(f2int, L-0.5, 0.1, D-0.5, 0, 3.82, 0);                              // slab
+ibox(f2int, 10.9, 2.3, 0.14, 4.85, 5.05, 1.0);                           // corridor wall front
+ibox(f2int, 10.9, 2.3, 0.14, 4.85, 5.05, -1.0);                          // corridor wall rear
+[-0.65, 2.2, 5.0, 7.8].forEach(x=> ibox(f2int, 0.14, 2.3, D-0.9, x, 5.05, 0)); // unit cross walls
+/* duplex stairs marks in first pair of units */
+for(let s=0;s<3;s++){ ibox(f2int, 0.8, 0.18+s*0.18, 0.4, 0.8, 3.95+s*0.12, 2.6+s*0.42, M.gold());
+                      ibox(f2int, 0.8, 0.18+s*0.18, 0.4, 0.8, 3.95+s*0.12, -2.6-s*0.42, M.gold()); }
+/* hall perimeter hint */
+ibox(f2int, 9.5, 0.5, 0.12, -5.4, 4.12, 3.6, M.part());
+ibox(f2int, 9.5, 0.5, 0.12, -5.4, 4.12, -3.6, M.part());
+/* 3.NP — mansard suite partitions */
+ibox(f3int, L-1.2, 0.1, D-1.6, 0, 7.52, 0);
+ibox(f3int, 0.14, 1.9, D-2.4, -3.2, 8.5, 0);
+ibox(f3int, 0.14, 1.9, D-2.4, 3.4, 8.5, 0);
+ibox(f3int, 2.4, 0.45, 1.6, 0.6, 7.8, -0.5, M.wood());                   // bed hint
+
+/* ============ ROCK CLIFF + anchor net + caves ============ */
+(()=>{
+  const g = new THREE.PlaneGeometry(38, 17, 44, 22);
+  const pos = g.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), y=pos.getY(i);
+    const edge = Math.min(1,(y+8.5)/4);                   // calmer at base
+    let n = Math.sin(x*0.55)*0.45 + Math.sin(y*0.9+2.1)*0.35
+          + Math.sin((x+y)*1.7)*0.2 + Math.sin(x*2.9+1.2)*0.12;
+    pos.setZ(i, n*(0.55+0.45*edge));
+  }
+  g.computeVertexNormals();
+  const rock = new THREE.Mesh(g, M.rock());
+  rock.position.set(2, 7.0, -14.6);
+  reg(rock,'caves');
+  // body + top
+  box(38, 17, 5.4, 2, 7.0, -17.6, M.rockD(), 'caves');
+  box(38, 1.2, 7.0, 2, 15.4, -17.2, M.rockD(), 'caves');
+  // anchor net — thin wireframe draped on the face
+  const ng = new THREE.PlaneGeometry(36, 15, 13, 7);
+  const np = ng.attributes.position;
+  for(let i=0;i<np.count;i++){
+    const x=np.getX(i), y=np.getY(i);
+    const edge = Math.min(1,(y+7.5)/4);
+    let n = Math.sin(x*0.55)*0.45 + Math.sin(y*0.9+2.1)*0.35
+          + Math.sin((x+y)*1.7)*0.2 + Math.sin(x*2.9+1.2)*0.12;
+    np.setZ(i, n*(0.55+0.45*edge)+0.2);
+  }
+  const net = new THREE.LineSegments(new THREE.WireframeGeometry(ng),
+    new THREE.LineBasicMaterial({color:0xc9a227, transparent:true, opacity:0.10}));
+  net.position.set(2, 7.3, -14.6);
+  REG.push({mesh:net, mat:net.material, layer:'caves', target:1, glassLike:true, noShadow:true, baseEI:0, baseEm:0});
+  scene.add(net);
+})();
+/* cave portals (2) with warm interior light */
+function cave(x, w2, h){
+  const s = new THREE.Shape();
+  s.moveTo(-w2,0); s.lineTo(-w2,h-w2); s.absarc(0,h-w2,w2,Math.PI,0,true); s.lineTo(w2,0); s.closePath();
+  // dark tube
+  const tube = new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:2.6,bevelEnabled:false}), M.caveIn());
+  tube.position.set(x, 0.02, -15.3); reg(tube,'caves',{noShadow:true});
+  // glow back-plane
+  const gl = new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:0.1,bevelEnabled:false}), M.caveGlow());
+  gl.scale.set(0.82,0.82,1); gl.position.set(x, 0.04, -14.9); reg(gl,'caves',{noShadow:true,glassLike:true});
+  // gold rim
+  const hole = new THREE.Path();
+  hole.moveTo(-w2,0); hole.lineTo(-w2,h-w2); hole.absarc(0,h-w2,w2,Math.PI,0,true); hole.lineTo(w2,0); hole.closePath();
+  const rs = new THREE.Shape();
+  const o=w2+0.22;
+  rs.moveTo(-o,0); rs.lineTo(-o,h-w2); rs.absarc(0,h-w2,o,Math.PI,0,true); rs.lineTo(o,0); rs.closePath();
+  rs.holes.push(hole);
+  const rim = new THREE.Mesh(new THREE.ExtrudeGeometry(rs,{depth:0.18,bevelEnabled:false}), M.gold());
+  rim.position.set(x, 0.02, -12.78); reg(rim,'caves',{noShadow:true});
+  const pl = new THREE.PointLight(0xe8a04a, 26, 11, 2);
+  pl.position.set(x, h*0.5, -13.6); scene.add(pl);
+}
+cave(4.6, 1.35, 3.3);   // wine cave
+cave(9.9, 1.05, 2.7);
+
+/* ============ COURTYARD (right) — arch wall, summer zone ============ */
+(()=>{
+  // plaza slab
+  box(8.2, 0.08, 19.6, 15.0, 0.02, -3.2, new THREE.MeshStandardMaterial({color:0x1a1c21,roughness:.95}), 'caves', {noShadow:true});
+  // path from building to caves
+  box(2.4, 0.1, 7.6, 7.2, 0.04, -9.6, new THREE.MeshStandardMaterial({color:0x242018,roughness:.95}), 'caves', {noShadow:true});
+  // low wall with 3 arches along the street side of the courtyard
+  const w=7.6, h=3.0, t=0.45;
+  const s = new THREE.Shape();
+  s.moveTo(0,0); s.lineTo(w,0); s.lineTo(w,h); s.lineTo(0,h); s.closePath();
+  for(let i=0;i<3;i++){
+    const cx=1.35+i*2.5, aw=0.85, ah=2.1;
+    const p=new THREE.Path();
+    p.moveTo(cx-aw,0); p.lineTo(cx-aw,ah-aw); p.absarc(cx,ah-aw,aw,Math.PI,0,true); p.lineTo(cx+aw,0); p.closePath();
+    s.holes.push(p);
+  }
+  const wall = new THREE.Mesh(new THREE.ExtrudeGeometry(s,{depth:t,bevelEnabled:false}), M.wallD());
+  wall.position.set(HL+0.6, 0, HD-0.4); reg(wall,'caves');
+  box(w+0.3, 0.16, t+0.3, HL+0.6+w/2, h+0.07, HD-0.4+t/2, M.plinth(), 'caves');
+  // summer zone: tables + stools near the cave
+  const tb=[[12.6,-8.6],[14.6,-10.2],[12.2,-11.6]];
+  tb.forEach(([x,z])=>{ box(0.8,0.72,0.8,x,0.38,z,M.wood(),'caves');
+    box(0.4,0.4,0.4,x-0.85,0.22,z+0.15,M.frame(),'caves');
+    box(0.4,0.4,0.4,x+0.85,0.22,z-0.1,M.frame(),'caves'); });
+  // string lights (garland): two sagging runs of warm bulbs
+  function garland(a,b,n){
+    for(let i=0;i<=n;i++){
+      const t=i/n;
+      const p=new THREE.Vector3().lerpVectors(new THREE.Vector3(...a), new THREE.Vector3(...b), t);
+      p.y -= Math.sin(Math.PI*t)*0.75;
+      const m=new THREE.Mesh(new THREE.SphereGeometry(0.075,8,8),M.bulb());
+      m.position.copy(p); reg(m,'caves',{noShadow:true,glassLike:true});
+    }
+  }
+  box(0.09, 4.4, 0.09, 11.0, 2.2, -6.6, M.frame(), 'caves');
+  box(0.09, 4.7, 0.09, 16.2, 2.35, -12.4, M.frame(), 'caves');
+  garland([11.0,4.35,-6.6],[16.2,4.65,-12.4],13);
+  garland([16.2,4.65,-12.4],[8.4,4.1,-13.2],11);
+})();
+
+/* ============ GROUND ============ */
+(()=>{
+  // subtle noise texture
+  const c=document.createElement('canvas'); c.width=c.height=128;
+  const ctx=c.getContext('2d'); ctx.fillStyle='#15171c'; ctx.fillRect(0,0,128,128);
+  for(let i=0;i<2600;i++){ const v=18+Math.random()*14|0;
+    ctx.fillStyle=`rgba(${v},${v+2},${v+6},.5)`; ctx.fillRect(Math.random()*128,Math.random()*128,1.6,1.6); }
+  const tx=new THREE.CanvasTexture(c); tx.wrapS=tx.wrapT=THREE.RepeatWrapping; tx.repeat.set(10,7);
+  const pod=new THREE.Mesh(new THREE.BoxGeometry(62,0.9,44),
+    new THREE.MeshStandardMaterial({map:tx,color:0xffffff,roughness:.97}));
+  pod.position.set(1,-0.47,-3); pod.receiveShadow=true; scene.add(pod);
+  // street strip with slight fall to the right (−0.75 on drawing)
+  const st=new THREE.Mesh(new THREE.BoxGeometry(30,0.1,3.6),
+    new THREE.MeshStandardMaterial({color:0x1d2026,roughness:.95}));
+  st.position.set(0,0.0,HD+2.6); st.rotation.z=0.025; st.receiveShadow=true; scene.add(st);
+})();
+
+/* ============ LABELS ============ */
+const LABELS=[];
+function label(key,layer,pos){
+  const el=document.createElement('div'); el.className='lbl'; el.textContent=T.lbl[key];
+  const o=new CSS2DObject(el); o.position.set(...pos); scene.add(o);
+  LABELS.push({o,el,layer});
+}
+label('rest',  'floor1', [-4.6, 3.1, 7.9]);
+label('apts',  'floor2', [ 4.6, 7.0, 7.6]);
+label('attic', 'floor3', [ 1.0, 13.9, 3.2]);
+label('cave',  'caves',  [ 4.6, 4.7, -12.3]);
+label('summer','caves',  [13.6, 3.4, -10.0]);
+
+/* ============ UI / layer switching ============ */
+const ui=document.getElementById('ui');
+const ORDER=['all','floor1','floor2','floor3','caves'];
+let MODE='all';
+ORDER.forEach(id=>{
+  const b=document.createElement('button'); b.className='btn'; b.dataset.id=id;
+  b.textContent=T.btns[id]; b.onclick=()=>setMode(id); ui.appendChild(b);
+});
+function setMode(id){
+  MODE=id;
+  document.querySelectorAll('.btn').forEach(b=>b.classList.toggle('active',b.dataset.id===id));
+  REG.forEach(e=>{
+    if(e.layer==='roof') e.target = id==='all'?1 : id==='floor3'?0.22 : 0.08;
+    else if(e.layer===id) e.target = e.shell?0.35:1;
+    else e.target = id==='all'?1:0.08;
+    // warm tint on the highlighted layer walls
+    if(e.mat.emissive && !e.glassLike){
+      if(id!=='all' && e.layer===id){ e.mat.emissive.setHex(0xc9a227); e.mat.emissiveIntensity=0.05; }
+      else { e.mat.emissive.setHex(e.baseEm); e.mat.emissiveIntensity=e.baseEI; }
+    }
+  });
+  f1int.visible = id==='floor1';
+  f2int.visible = id==='floor2';
+  f3int.visible = id==='floor3';
+  LABELS.forEach(l=>{ l.el.style.opacity=(id==='all'||l.layer===id)?'1':'0'; });
+}
+setMode(ORDER.includes(START_LAYER)?START_LAYER:'all');
+
+/* hint */
+const hint=document.getElementById('hint');
+if(STILL) hint.style.display='none';
+let hintGone=false;
+function hideHint(){ if(!hintGone){ hint.classList.add('gone'); hintGone=true; } }
+setTimeout(hideHint, 7000);
+
+/* ============ loop ============ */
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); labelRenderer.setSize(innerWidth,innerHeight);
+});
+renderer.setAnimationLoop(()=>{
+  REG.forEach(e=>{
+    const o=e.mat.opacity, t=e.target;
+    if(Math.abs(o-t)>0.004){ e.mat.opacity=o+(t-o)*0.16; }
+    else if(o!==t) e.mat.opacity=t;
+    e.mat.depthWrite = e.mat.opacity>0.45;
+    e.mesh.castShadow = !e.noShadow && e.target>0.5;
+  });
+  controls.update();
+  renderer.render(scene,camera);
+  labelRenderer.render(scene,camera);
+});
+window.__setLayer = setMode;   // for external drivers / tests
+</script>
+</body>
+</html>
